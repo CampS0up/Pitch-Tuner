@@ -1,5 +1,5 @@
 /*
-  ESP32 + MAX9814 + YIN Pitch + I2S ADC @ 44.1 kHz + BLE + Buzzer
+  ESP32 + MAX9814 + YIN Pitch + I2S ADC @ 35 kHz + BLE + Buzzer
 
   Hardware:
     - ESP32 DevKit (classic ESP32)
@@ -16,7 +16,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <ctype.h>        // for toupper, isdigit
+#include <ctype.h>
 #include <NimBLEDevice.h>
 #include "driver/i2s.h"
 #include "driver/adc.h"
@@ -33,13 +33,14 @@
 
 // Voice guard rails
 #define MIN_F0_VOICE_HZ    55.0f       // below this: ignore
-#define MAX_F0_VOICE_HZ    1100.0f     // above this: fold down
+#define MAX_F0_VOICE_HZ    1100.0f     // above this: ignore
 
 // RMS threshold to ignore very quiet frames
 #define MIN_RMS_FOR_VOICE  0.004f
 
-// Pitch calibration: if your detected pitch is consistently
-// about 5 semitones too HIGH, this shifts it DOWN by 5.
+// ---- Global pitch calibration ----
+// Your measured pitches are about 5 semitones too LOW.
+// So we shift them UP by +5 semitones.
 #define CALIBRATION_SEMITONES   -4.0f
 #define FREQ_CAL_FACTOR         powf(2.0f, CALIBRATION_SEMITONES / 12.0f)
 
@@ -81,32 +82,41 @@ static bool                  g_connected = false;
 static uint32_t              g_lastReport     = 0;
 static uint32_t              g_lastRefUpdate  = 0;
 
-// =================== YIN FUNCTIONS (DingKe-based) ===================
+// =================== YIN FUNCTIONS (DingKe-based, band-limited) ===================
 
+// Only compute lags in the range that corresponds to [MIN_F0_VOICE_HZ, MAX_F0_VOICE_HZ]
 void Yin_difference(Yin* yin, int16_t* buffer) {
   int16_t i;
   int16_t tau;
   float   delta;
 
+  // compute lag bounds (in samples)
+  int16_t minLag = (int16_t)floorf((float)YIN_SAMPLING_RATE / MAX_F0_VOICE_HZ);
+  int16_t maxLag = (int16_t)floorf((float)YIN_SAMPLING_RATE / MIN_F0_VOICE_HZ);
+  if (maxLag >= yin->halfBufferSize) maxLag = yin->halfBufferSize - 1;
+  if (minLag < 1) minLag = 1;
+
+  // clear entire buffer each frame
   for (tau = 0; tau < yin->halfBufferSize; tau++) {
     yin->yinBuffer[tau] = 0.0f;
   }
 
-  for (tau = 0; tau < yin->halfBufferSize; tau++) {
+  // difference only in the useful lag range
+  for (tau = minLag; tau <= maxLag; tau++) {
+    float acc = 0.0f;
     for (i = 0; i < yin->halfBufferSize; i++) {
       delta = (float)buffer[i] - (float)buffer[i + tau];
-      yin->yinBuffer[tau] += delta * delta;
+      acc += delta * delta;
     }
+    yin->yinBuffer[tau] = acc;
   }
 }
 
 void Yin_cumulativeMeanNormalizedDifference(Yin* yin) {
-  int16_t tau;
   float runningSum = 0.0f;
-
   yin->yinBuffer[0] = 1.0f;
 
-  for (tau = 1; tau < yin->halfBufferSize; tau++) {
+  for (int16_t tau = 1; tau < yin->halfBufferSize; tau++) {
     runningSum += yin->yinBuffer[tau];
     if (runningSum > 0.0f) {
       yin->yinBuffer[tau] *= (float)tau / runningSum;
@@ -117,11 +127,18 @@ void Yin_cumulativeMeanNormalizedDifference(Yin* yin) {
 }
 
 int16_t Yin_absoluteThreshold(Yin* yin) {
+  // same lag band as in difference()
+  int16_t minLag = (int16_t)floorf((float)YIN_SAMPLING_RATE / MAX_F0_VOICE_HZ);
+  int16_t maxLag = (int16_t)floorf((float)YIN_SAMPLING_RATE / MIN_F0_VOICE_HZ);
+  if (maxLag >= yin->halfBufferSize) maxLag = yin->halfBufferSize - 1;
+  if (minLag < 2) minLag = 2;
+
   int16_t tau;
 
-  for (tau = 2; tau < yin->halfBufferSize; tau++) {
+  for (tau = minLag; tau <= maxLag; tau++) {
     if (yin->yinBuffer[tau] < yin->threshold) {
-      while (tau + 1 < yin->halfBufferSize &&
+      // local minimum search
+      while (tau + 1 <= maxLag &&
              yin->yinBuffer[tau + 1] < yin->yinBuffer[tau]) {
         tau++;
       }
@@ -130,11 +147,10 @@ int16_t Yin_absoluteThreshold(Yin* yin) {
     }
   }
 
-  if (tau == yin->halfBufferSize || yin->yinBuffer[tau] >= yin->threshold) {
-    tau = -1;
+  if (tau > maxLag || yin->yinBuffer[tau] >= yin->threshold) {
     yin->probability = 0.0f;
+    return -1;
   }
-
   return tau;
 }
 
@@ -218,8 +234,7 @@ float computeRMS_int16(const int16_t* buf, int N) {
   for (int i = 0; i < N; i++) {
     acc += (double)buf[i] * (double)buf[i];
   }
-  // 12-bit data scaled into int16; normalization is approximate
-  return sqrtf((float)(acc / N)) / 4096.0f;
+  return sqrtf((float)(acc / N)) / 4096.0f;  // approx normalize
 }
 
 void hzToNote(float f, char* outName, float* outCents, float A4 = 440.0f) {
@@ -284,16 +299,14 @@ float noteNameToFreq(const String& s, float A4 = 440.0f) {
 // =================== I2S ADC CAPTURE ===================
 
 void setupI2SADC() {
-  // Configure ADC1 channel
   adc1_config_width(ADC_WIDTH_BIT_12);
   adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN_DB_11);
 
-  // Set up I2S in ADC mode
   i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX | I2S_MODE_ADC_BUILT_IN),
     .sample_rate = YIN_SAMPLING_RATE,
     .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
-    .channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT,  // data in one channel is fine
+    .channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT,
     .communication_format = I2S_COMM_FORMAT_I2S_MSB,
     .intr_alloc_flags = 0,
     .dma_buf_count = 4,
@@ -320,7 +333,7 @@ void captureFrame2048() {
   // I2S ADC returns 12-bit data left-aligned in 16-bit
   for (int i = 0; i < count; i++) {
     int16_t raw = sampleBuffer[i];
-    sampleBuffer[i] = raw >> 4;  // scale to 0..4095-ish
+    sampleBuffer[i] = raw >> 4;  // scale into ~0..4095-ish
   }
 }
 
@@ -347,7 +360,6 @@ void handleCommand(String cmd); // forward
 class RxCB : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* c, NimBLEConnInfo&) override {
     std::string v = c->getValue();
-    // Explicit BLE RX debug:
     Serial.printf("[BLE RX] %s\n", v.c_str());
     handleCommand(String(v.c_str()));
   }
@@ -449,24 +461,6 @@ void handleCommand(String cmd) {
   }
 }
 
-// ============ NEW HELPER: SEND PITCH JSON TO APP + SERIAL ============
-void sendPitchToApp(float f0, const char* note, float cents, float rms, float prob) {
-  if (!g_connected || !g_txChar) return;
-
-  char payload[200];
-  int nbytes = snprintf(payload, sizeof(payload),
-                        "{\"f0\":%.2f,\"note\":\"%s\",\"cents\":%.1f,"
-                        "\"rms\":%.3f,\"prob\":%.2f}",
-                        f0, note, cents, rms, prob);
-
-  // Log exactly what we send to the app:
-  Serial.print("[BLE TX] ");
-  Serial.println(payload);
-
-  g_txChar->setValue((uint8_t*)payload, nbytes);
-  g_txChar->notify();
-}
-
 // =================== ARDUINO SETUP/LOOP ===================
 
 void setup() {
@@ -510,18 +504,10 @@ void loop() {
     float f0 = Yin_getPitch(&yin, sampleBuffer);
     prob     = Yin_getProbability(&yin);
 
-    if (prob < 0.1f || f0 <= 0.0f) {
+    if (prob < 0.1f || f0 < MIN_F0_VOICE_HZ || f0 > MAX_F0_VOICE_HZ) {
       pitch = 0.0f;
     } else {
-      // Fold down harmonics into voice range
-      while (f0 > MAX_F0_VOICE_HZ) {
-        f0 *= 0.5f;
-      }
-      if (f0 < MIN_F0_VOICE_HZ) {
-        pitch = 0.0f;
-      } else {
-        pitch = f0;
-      }
+      pitch = f0;
     }
   } else {
     pitch = 0.0f;
@@ -548,22 +534,31 @@ void loop() {
     pitchMed = tmp[n / 2];
   }
 
-  // 4.5) Apply calibration so tuning is correct
+  // 4.5) Apply global calibration (shift up by +5 semitones)
   float pitchCal = pitchMed * FREQ_CAL_FACTOR;
 
-  // 5) Note + cents
+  // 5) Note + cents using calibrated pitch
   char note[8];
   float cents = 0.0f;
   hzToNote(pitchCal, note, &cents, g_A4);
 
-  // Serial debug (local)
+  // Serial debug
   Serial.printf("RMS=%.4f  f0=%.2f Hz  Note=%s  (%.1f cents)  prob=%.2f\n",
                 rms, pitchCal, note, cents, prob);
 
-  // 6) Send to app over BLE and log the payload
+  // BLE JSON
   uint32_t now = millis();
   if (g_connected && (now - g_lastReport) >= REPORT_INTERVAL_MS) {
-    sendPitchToApp(pitchCal, note, cents, rms, prob);
+    if (g_txChar) {
+      char payload[200];
+      int nbytes = snprintf(payload, sizeof(payload),
+                            "{\"f0\":%.2f,\"note\":\"%s\",\"cents\":%.1f,"
+                            "\"rms\":%.3f,\"prob\":%.2f}",
+                            pitchCal, note, cents, rms, prob);
+      g_txChar->setValue((uint8_t*)payload, nbytes);
+      g_txChar->notify();
+      Serial.printf("[BLE TX] %s\n", payload);
+    }
     g_lastReport = now;
   }
 
