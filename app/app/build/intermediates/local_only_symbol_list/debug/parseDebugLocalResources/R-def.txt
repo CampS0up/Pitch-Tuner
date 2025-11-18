@@ -1,7 +1,17 @@
 R_DEF: Internal format may change without notice
 local
+id btnMute
+id btnPlayNote
 id btnScan
+id btnToggleLog
+id edtNote
 id listDevices
+id txtCurrentCents
+id txtCurrentFreq
+id txtCurrentNote
+id txtCurrentProb
+id txtLogResult
+id txtPlayStatus
 id txtStatus
 layout activity_main
 string app_name

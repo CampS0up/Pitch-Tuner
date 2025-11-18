@@ -3190,7 +3190,10 @@ id bounce
 id bounceBoth
 id bounceEnd
 id bounceStart
+id btnMute
+id btnPlayNote
 id btnScan
+id btnToggleLog
 id buttonPanel
 id cache_measures
 id callMeasure
@@ -3266,6 +3269,7 @@ id east
 id edge
 id edit_query
 id edit_text_id
+id edtNote
 id elastic
 id embed
 id end
@@ -3571,6 +3575,12 @@ id transition_position
 id transition_scene_layoutid_cache
 id transition_transform
 id triangle
+id txtCurrentCents
+id txtCurrentFreq
+id txtCurrentNote
+id txtCurrentProb
+id txtLogResult
+id txtPlayStatus
 id txtStatus
 id unchecked
 id uniform

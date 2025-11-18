@@ -16,6 +16,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <ctype.h>        // for toupper, isdigit
 #include <NimBLEDevice.h>
 #include "driver/i2s.h"
 #include "driver/adc.h"
@@ -26,20 +27,27 @@
 
 #define BUZZER_PIN         13
 
-#define YIN_SAMPLING_RATE  35000       // Hz
+#define YIN_SAMPLING_RATE  35000       // Hz (I2S ADC sample rate)
 #define YIN_BUFFER_SIZE    2048        // samples per frame
 #define YIN_THRESHOLD      0.15f       // YIN threshold
 
 // Voice guard rails
 #define MIN_F0_VOICE_HZ    55.0f       // below this: ignore
-#define MAX_F0_VOICE_HZ    1100.0f      // above this: fold down
+#define MAX_F0_VOICE_HZ    1100.0f     // above this: fold down
 
 // RMS threshold to ignore very quiet frames
 #define MIN_RMS_FOR_VOICE  0.004f
 
+// Pitch calibration: if your detected pitch is consistently
+// about 5 semitones too HIGH, this shifts it DOWN by 5.
+#define CALIBRATION_SEMITONES   -4.0f
+#define FREQ_CAL_FACTOR         powf(2.0f, CALIBRATION_SEMITONES / 12.0f)
+
 // BLE UUIDs (Nordic UART style)
 static NimBLEUUID UUID_SERVICE("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
+// RX: phone -> ESP32 (WRITE)
 static NimBLEUUID UUID_RX     ("6E400002-B5A3-F393-E0A9-E50E24DCCA9E");
+// TX: ESP32 -> phone (NOTIFY)
 static NimBLEUUID UUID_TX     ("6E400003-B5A3-F393-E0A9-E50E24DCCA9E");
 
 #define REPORT_INTERVAL_MS  60
@@ -66,12 +74,12 @@ static bool    g_running    = true;
 static bool    g_refToneOn  = false;
 static float   g_A4         = 440.0f;  // reference A4
 
-static NimBLEServer*         g_server   = nullptr;
-static NimBLECharacteristic* g_txChar   = nullptr;
-static NimBLECharacteristic* g_rxChar   = nullptr;
+static NimBLEServer*         g_server    = nullptr;
+static NimBLECharacteristic* g_txChar    = nullptr;
+static NimBLECharacteristic* g_rxChar    = nullptr;
 static bool                  g_connected = false;
-static uint32_t              g_lastReport = 0;
-static uint32_t              g_lastRefUpdate = 0;
+static uint32_t              g_lastReport     = 0;
+static uint32_t              g_lastRefUpdate  = 0;
 
 // =================== YIN FUNCTIONS (DingKe-based) ===================
 
@@ -246,7 +254,7 @@ float nearestNoteFreq(float f, float A4 = 440.0f) {
 // parse "C4", "G#3", etc.
 float noteNameToFreq(const String& s, float A4 = 440.0f) {
   if (s.length() < 2) return 0.0f;
-  char n0 = toupper(s[0]);
+  char n0 = toupper((unsigned char)s[0]);
   char n1 = (s[1] == '#' || s[1] == 'b') ? s[1] : '\0';
 
   int idx = 1;
@@ -339,6 +347,8 @@ void handleCommand(String cmd); // forward
 class RxCB : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* c, NimBLEConnInfo&) override {
     std::string v = c->getValue();
+    // Explicit BLE RX debug:
+    Serial.printf("[BLE RX] %s\n", v.c_str());
     handleCommand(String(v.c_str()));
   }
 };
@@ -439,6 +449,24 @@ void handleCommand(String cmd) {
   }
 }
 
+// ============ NEW HELPER: SEND PITCH JSON TO APP + SERIAL ============
+void sendPitchToApp(float f0, const char* note, float cents, float rms, float prob) {
+  if (!g_connected || !g_txChar) return;
+
+  char payload[200];
+  int nbytes = snprintf(payload, sizeof(payload),
+                        "{\"f0\":%.2f,\"note\":\"%s\",\"cents\":%.1f,"
+                        "\"rms\":%.3f,\"prob\":%.2f}",
+                        f0, note, cents, rms, prob);
+
+  // Log exactly what we send to the app:
+  Serial.print("[BLE TX] ");
+  Serial.println(payload);
+
+  g_txChar->setValue((uint8_t*)payload, nbytes);
+  g_txChar->notify();
+}
+
 // =================== ARDUINO SETUP/LOOP ===================
 
 void setup() {
@@ -450,7 +478,7 @@ void setup() {
   setupI2SADC();
   setupBLE();
 
-  Serial.println("ESP32 + MAX9814 + YIN @ 44.1 kHz + BLE + Buzzer ready.");
+  Serial.println("ESP32 + MAX9814 + YIN @ 35 kHz + BLE + Buzzer ready.");
   Serial.println("Mic OUT -> GPIO34, Buzzer -> GPIO13.");
 }
 
@@ -520,35 +548,30 @@ void loop() {
     pitchMed = tmp[n / 2];
   }
 
+  // 4.5) Apply calibration so tuning is correct
+  float pitchCal = pitchMed * FREQ_CAL_FACTOR;
+
   // 5) Note + cents
   char note[8];
   float cents = 0.0f;
-  hzToNote(pitchMed, note, &cents, g_A4);
+  hzToNote(pitchCal, note, &cents, g_A4);
 
-  // Serial debug
+  // Serial debug (local)
   Serial.printf("RMS=%.4f  f0=%.2f Hz  Note=%s  (%.1f cents)  prob=%.2f\n",
-                rms, pitchMed, note, cents, prob);
+                rms, pitchCal, note, cents, prob);
 
-  // BLE JSON
+  // 6) Send to app over BLE and log the payload
   uint32_t now = millis();
   if (g_connected && (now - g_lastReport) >= REPORT_INTERVAL_MS) {
-    if (g_txChar) {
-      char payload[200];
-      int nbytes = snprintf(payload, sizeof(payload),
-                            "{\"f0\":%.2f,\"note\":\"%s\",\"cents\":%.1f,"
-                            "\"rms\":%.3f,\"prob\":%.2f}",
-                            pitchMed, note, cents, rms, prob);
-      g_txChar->setValue((uint8_t*)payload, nbytes);
-      g_txChar->notify();
-    }
+    sendPitchToApp(pitchCal, note, cents, rms, prob);
     g_lastReport = now;
   }
 
-  // Reference tone on buzzer
+  // Reference tone on buzzer (match calibrated pitch)
   if (g_refToneOn) {
-    if (pitchMed > 0.0f) {
+    if (pitchCal > 0.0f) {
       if (now - g_lastRefUpdate > 80) {
-        float refF = nearestNoteFreq(pitchMed, g_A4);
+        float refF = nearestNoteFreq(pitchCal, g_A4);
         buzzerPlayFreq(refF);
         g_lastRefUpdate = now;
       }

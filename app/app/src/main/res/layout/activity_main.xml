@@ -1,43 +1,135 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
 
+    <!-- Status + Scan -->
+    <TextView
+        android:id="@+id/txtStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Status: Idle"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:paddingBottom="8dp" />
+
+    <Button
+        android:id="@+id/btnScan"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Scan for BLE Devices" />
+
+    <!-- Device list -->
+    <ListView
+        android:id="@+id/listDevices"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:divider="@android:color/darker_gray"
+        android:dividerHeight="1dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp" />
+
+    <!-- Separator -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@android:color/darker_gray"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="8dp" />
+
+    <!-- Current pitch section -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Current Pitch"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:paddingBottom="4dp" />
+
+    <TextView
+        android:id="@+id/txtCurrentNote"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Note: --"
+        android:textSize="16sp" />
+
+    <TextView
+        android:id="@+id/txtCurrentFreq"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="f0: -- Hz"
+        android:textSize="16sp" />
+
+    <TextView
+        android:id="@+id/txtCurrentCents"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Cents: --"
+        android:textSize="16sp" />
+
+    <TextView
+        android:id="@+id/txtCurrentProb"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Confidence: --"
+        android:textSize="16sp"
+        android:paddingBottom="8dp" />
+
+    <!-- Play note controls -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp">
+        android:orientation="horizontal"
+        android:paddingTop="4dp">
 
-        <TextView
-            android:id="@+id/txtStatus"
-            android:layout_width="match_parent"
+        <EditText
+            android:id="@+id/edtNote"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="Status: Waiting for permissions..."
-            android:textSize="14sp" />
+            android:layout_weight="1"
+            android:hint="Note (e.g. A4, C4)"
+            android:inputType="textCapCharacters" />
 
         <Button
-            android:id="@+id/btnScan"
-            android:layout_width="match_parent"
+            android:id="@+id/btnPlayNote"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Scan for BLE Devices"
-            android:layout_marginTop="12dp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Found devices:"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:layout_marginTop="16dp" />
-
-        <ListView
-            android:id="@+id/listDevices"
-            android:layout_width="match_parent"
-            android:layout_height="400dp"
-            android:divider="#888888"
-            android:dividerHeight="1dp"
-            android:layout_marginTop="8dp" />
-
+            android:text="Play" />
     </LinearLayout>
-</ScrollView>
+
+    <Button
+        android:id="@+id/btnMute"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Mute Buzzer"
+        android:layout_marginTop="4dp" />
+
+    <TextView
+        android:id="@+id/txtPlayStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textSize="14sp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp" />
+
+    <!-- Accuracy logging -->
+    <Button
+        android:id="@+id/btnToggleLog"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Start Accuracy Log"
+        android:layout_marginTop="8dp" />
+
+    <TextView
+        android:id="@+id/txtLogResult"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Accuracy log output will appear here."
+        android:textSize="14sp"
+        android:paddingTop="4dp" />
+
+</LinearLayout>
