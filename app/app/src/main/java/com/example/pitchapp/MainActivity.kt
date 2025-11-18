@@ -19,6 +19,7 @@ import org.json.JSONObject
 import java.nio.charset.Charset
 import java.util.UUID
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity() {
 
@@ -96,7 +97,8 @@ class MainActivity : AppCompatActivity() {
     // ----- Accuracy logging -----
     private var logging = false
     private var logStartTime: Long = 0L
-    private val logCents = ArrayList<Float>()
+    private val logCents = ArrayList<Float>()   // signed cents
+    private val logNotes = ArrayList<String>()  // note names
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -364,7 +366,6 @@ class MainActivity : AppCompatActivity() {
                     runOnUiThread {
                         txtStatus.text = "Connected. Requesting MTU..."
                     }
-                    // Request bigger MTU so the full JSON fits in one notification.
                     gatt.requestMtu(100)
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
@@ -438,11 +439,7 @@ class MainActivity : AppCompatActivity() {
                 val data = characteristic.value
                 val text = data.toString(Charset.forName("UTF-8"))
 
-                // Show raw data on screen for debugging
-                runOnUiThread {
-                    txtLogResult.text = "Last raw: $text"
-                }
-
+                Log.d(TAG, "onCharacteristicChanged: $text")
                 handleJsonString(text)
             }
         }
@@ -484,9 +481,11 @@ class MainActivity : AppCompatActivity() {
                 txtCurrentProb.text = String.format("Confidence: %.2f", prob)
             }
 
+            // While logging, keep signed cents + note for analysis
             if (logging && note != "--" && !cents.isNaN()) {
                 synchronized(logCents) {
-                    logCents.add(abs(cents.toFloat()))
+                    logCents.add(cents.toFloat())  // signed
+                    logNotes.add(note)
                 }
             }
 
@@ -551,32 +550,122 @@ class MainActivity : AppCompatActivity() {
         if (logging) {
             synchronized(logCents) {
                 logCents.clear()
+                logNotes.clear()
             }
             logStartTime = System.currentTimeMillis()
             btnToggleLog.text = "Stop Accuracy Log"
-            txtLogResult.text = "Logging... hold a note on pitch!"
+            txtLogResult.text = "Logging... hold a steady note!"
         } else {
             val endTime = System.currentTimeMillis()
             val durationSec = (endTime - logStartTime) / 1000.0
 
-            val samples: List<Float>
+            val centsSamples: List<Float>
+            val noteSamples: List<String>
             synchronized(logCents) {
-                samples = ArrayList(logCents)
+                centsSamples = ArrayList(logCents)
+                noteSamples = ArrayList(logNotes)
             }
 
             btnToggleLog.text = "Start Accuracy Log"
 
-            if (samples.isEmpty()) {
+            if (centsSamples.isEmpty() || noteSamples.isEmpty()) {
                 txtLogResult.text = "No samples logged."
-            } else {
-                val avg = samples.sum() / samples.size
-                val max = samples.maxOrNull() ?: 0f
-                txtLogResult.text = String.format(
-                    "Last log:\nDuration: %.1f s\nSamples: %d\nAvg abs error: %.1f cents\nMax abs error: %.1f cents",
-                    durationSec, samples.size, avg, max
-                )
+                return
             }
+
+            // 1) Determine stable pitch: most common note
+            val counts = mutableMapOf<String, Int>()
+            for (n in noteSamples) {
+                counts[n] = (counts[n] ?: 0) + 1
+            }
+            val stableNote = counts.maxByOrNull { it.value }!!.key
+
+            // 2) Use only samples for that stable note
+            val baselineCents = mutableListOf<Float>()
+            for (i in centsSamples.indices) {
+                if (noteSamples[i] == stableNote) {
+                    baselineCents.add(centsSamples[i])
+                }
+            }
+
+            if (baselineCents.isEmpty()) {
+                txtLogResult.text = "No consistent note detected."
+                return
+            }
+
+            val absErrors = baselineCents.map { abs(it) }
+            val avgAbs = absErrors.average().toFloat()
+            val maxAbs = absErrors.maxOrNull() ?: 0f
+
+            // 3) Percent stable within ±10 cents
+            val stableThreshold = 10f
+            val stableCount = absErrors.count { it <= stableThreshold }
+            val stablePct = 100f * stableCount.toFloat() / absErrors.size.toFloat()
+
+            // 4) Error distribution chart
+            val chart = buildErrorChart(absErrors)
+
+            txtLogResult.text = String.format(
+                "Stable pitch: %s\n" +
+                        "Duration: %.1f s\n" +
+                        "Samples (stable note only): %d\n" +
+                        "Avg abs error: %.1f cents\n" +
+                        "Max abs error: %.1f cents\n" +
+                        "Percent stable (±10 cents): %.1f%%\n\n%s",
+                stableNote,
+                durationSec,
+                absErrors.size,
+                avgAbs,
+                maxAbs,
+                stablePct,
+                chart
+            )
         }
+    }
+
+    // Simple ASCII bar chart of abs error distribution
+    private fun buildErrorChart(absErrors: List<Float>): String {
+        if (absErrors.isEmpty()) return "No error data."
+
+        val ranges = listOf(
+            0f to 5f,
+            5f to 10f,
+            10f to 20f,
+            20f to 50f,
+            50f to Float.MAX_VALUE
+        )
+        val labels = listOf(
+            "0–5c",
+            "5–10c",
+            "10–20c",
+            "20–50c",
+            ">50c"
+        )
+        val counts = IntArray(ranges.size)
+
+        for (e in absErrors) {
+            var idx = ranges.lastIndex
+            for (i in ranges.indices) {
+                val (lo, hi) = ranges[i]
+                if (e >= lo && e < hi) {
+                    idx = i
+                    break
+                }
+            }
+            counts[idx]++
+        }
+
+        val total = absErrors.size.toFloat()
+        val sb = StringBuilder()
+        sb.append("Error distribution (abs cents):\n")
+        for (i in ranges.indices) {
+            if (counts[i] == 0) continue
+            val pct = 100f * counts[i].toFloat() / total
+            val barLen = maxOf(1, (pct / 5f).roundToInt())  // each block ~5%
+            val bars = "█".repeat(barLen)
+            sb.append(String.format("%-8s %s (%.1f%%)\n", labels[i], bars, pct))
+        }
+        return sb.toString()
     }
 
     override fun onDestroy() {

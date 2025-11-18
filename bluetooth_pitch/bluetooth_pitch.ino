@@ -39,9 +39,9 @@
 #define MIN_RMS_FOR_VOICE  0.004f
 
 // ---- Global pitch calibration ----
-// Your measured pitches are about 5 semitones too LOW.
-// So we shift them UP by +5 semitones.
-#define CALIBRATION_SEMITONES   -4.0f
+// Your measured pitches are about 3.7 semitones too LOW.
+// So we shift them Down by 3.7 semitones.
+#define CALIBRATION_SEMITONES   -3.7f
 #define FREQ_CAL_FACTOR         powf(2.0f, CALIBRATION_SEMITONES / 12.0f)
 
 // BLE UUIDs (Nordic UART style)
