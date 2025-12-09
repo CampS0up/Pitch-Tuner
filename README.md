@@ -1,124 +1,130 @@
-README.md
-ESP32 Vocal Pitch Tuner – Firmware + Android App
+# **ESP32 Vocal Pitch Tuner – Firmware + Android App**
 
-This project implements a real-time vocal pitch tuner using:
+This project implements a **real-time vocal pitch tuner** using:
 
-ESP32 + MAX9814 microphone module
+* **ESP32 + MAX9814 microphone module**
+* **YIN pitch detection algorithm (optimized + band-limited)**
+* **35 kHz I2S ADC sampling for clean audio input**
+* **BLE UART service** for streaming pitch data to an Android app
+* **Android app** that displays note, frequency, cents error, confidence, and tuning stability
+* Optional **reference tone playback** via buzzer
 
-YIN pitch detection algorithm (optimized + band-limited)
+The system provides **fast**, **stable**, and **low-latency pitch tracking** suitable for singing feedback, wearable devices, and other musical applications.
 
-35 kHz I2S ADC sampling for clean audio input
+---
 
-BLE UART service for streaming pitch data to an Android app
+## 🎤 **Features**
 
-Android app that displays note, frequency, cents error, stability, and optional accuracy logging
+### **ESP32 Firmware**
 
-Optional reference tone playback (buzzer)
+* MAX9814 microphone input via **I2S ADC @ 35 kHz**
+* YIN-based real-time pitch detection
+* Median smoothing + calibration offsets
+* BLE notifications (Nordic UART-style)
+* 60 ms pitch update interval
+* Automatic BLE advertising recovery
+* Reference tone system:
 
-The system provides fast, stable, and low-latency pitch tracking suitable for singing feedback, wearable devices, and music-tech experimentation.
+  * `REF ON` → play nearest musical note
+  * `PLAY NOTE=C4` or `PLAY F=440`
+* Adjustable concert pitch (`SET A4=442`)
 
-🎤 Features
-ESP32 Firmware
+### **Android App**
 
-MAX9814 microphone input via I2S ADC @ 35 kHz
+* Scans only for **ESP32-YinPitch-44k** devices (filtered)
+* Displays:
 
-YIN-based real-time pitch detection
+  * Current note
+  * Frequency
+  * Cents offset
+  * Confidence / probability
+* Sends commands (start/stop, play, mute, reference tone)
+* Accuracy Log Mode:
 
-Median smoothing + calibration for improved accuracy
+  * Collects cents error values
+  * Computes average error, maximum deviation, and stability percentage
+  * Shows most recent raw JSON packet
+* Built using **Kotlin + BLE GATT**
 
-BLE notifications (“UART”-style service)
+---
 
-60 ms reporting interval (adjustable)
+## 🛠️ **Hardware Setup (ESP32 + MAX9814)**
 
-Automatic BLE advertising recovery
+### **Microphone Wiring**
 
-Reference tone system:
+| MAX9814 Pin | ESP32 Pin          |
+| ----------- | ------------------ |
+| **VDD**     | 3.3V               |
+| **GND**     | GND                |
+| **OUT**     | GPIO 34 (ADC1_CH6) |
 
-REF ON = play nearest note for tuning
+### **Buzzer Wiring**
 
-PLAY NOTE=C4 or PLAY F=440
+| Buzzer Pin | ESP32 Pin |
+| ---------- | --------- |
+| **+**      | GPIO 13   |
+| **–**      | GND       |
 
-Adjustable concert pitch (SET A4=442, etc.)
+---
 
-Android App
+## 🔧 **Arduino Setup**
 
-Scans for ESP32-YinPitch-44k only (filtered)
+### **Required Tools**
 
-Shows:
+1. Install **ESP32 Arduino Core v2.0+**
+   *Boards Manager → Search “esp32” → Install*
 
-Current Note
+2. Required libraries:
 
-Frequency
-
-Cents offset
-
-Confidence
-
-Sends play/mute/start/stop commands
-
-Accuracy Log Mode:
-
-Collects cents error values
-
-Computes average error, max error, stability percentage
-
-Displays last raw JSON packet for debugging
-
-Fully written in Kotlin + BLE GATT
-
-🛠️ Hardware Setup (ESP32 + MAX9814)
-Connections
-MAX9814 Pin	ESP32 Pin
-VDD	3.3V
-GND	GND
-OUT	GPIO 34 (ADC1_CH6)
-Buzzer
-Buzzer Pin	ESP32 Pin
-+	GPIO 13
-–	GND
-🔧 Arduino Setup
-Install Required Tools
-
-Install ESP32 Arduino Core v2.0+
-Boards Manager → Search “esp32” → Install
-
-Required libraries:
-
+```
 NimBLE-Arduino
+```
 
+3. Recommended Board Settings:
 
-Set board in Arduino IDE:
-
+```
 Tools → Board → ESP32 Dev Module
 Upload Speed: 921600 (optional)
-Flash: 4 MB
+Flash Size: 4 MB
+```
 
-📡 BLE Service Description
+---
 
-The ESP32 exposes a Nordic UART-style BLE service:
+## 📡 **BLE Service Description**
 
-Purpose	UUID
-Service	6E400001-B5A3-F393-E0A9-E50E24DCCA9E
-RX (App → ESP)	6E400002-B5A3-F393-E0A9-E50E24DCCA9E
-TX (ESP → App)	6E400003-B5A3-F393-E0A9-E50E24DCCA9E
-💬 BLE Commands
+The ESP32 exposes a **Nordic UART-style BLE service**:
+
+| Purpose            | UUID                                   |
+| ------------------ | -------------------------------------- |
+| **Service**        | `6E400001-B5A3-F393-E0A9-E50E24DCCA9E` |
+| **RX (App → ESP)** | `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` |
+| **TX (ESP → App)** | `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` |
+
+---
+
+## 💬 **BLE Commands**
 
 Send these as plain text strings:
 
-Command	Function
-START	Begin pitch streaming
-STOP	Pause pitch processing
-MUTE	Silence buzzer
-PLAY NOTE=C4	Plays musical note C4
-PLAY F=440	Plays raw frequency
-REF ON	Buzzer plays nearest note to your pitch
-REF OFF	Stop reference tone
-SET A4=442	Change tuning reference
-PING	Returns JSON echo packet
-📤 BLE JSON Output Format
+| Command        | Description                    |
+| -------------- | ------------------------------ |
+| `START`        | Begin pitch streaming          |
+| `STOP`         | Pause pitch detection          |
+| `MUTE`         | Silence buzzer                 |
+| `PLAY NOTE=C4` | Play musical note              |
+| `PLAY F=440`   | Play specific frequency        |
+| `REF ON`       | Enable reference note tracking |
+| `REF OFF`      | Turn off reference tone        |
+| `SET A4=442`   | Adjust concert tuning          |
+| `PING`         | ESP32 returns a JSON echo      |
 
-ESP32 sends packets like:
+---
 
+## 📤 **BLE JSON Output Format**
+
+Typical packet sent from ESP32:
+
+```json
 {
   "f0": 293.66,
   "note": "D4",
@@ -126,107 +132,130 @@ ESP32 sends packets like:
   "rms": 0.136,
   "prob": 0.82
 }
+```
 
-Field	Description
-f0	Frequency (after calibration)
-note	Nearest musical note
-cents	Sharp/flat offset
-rms	Input signal energy
-prob	YIN confidence metric
-📱 Android App Setup
-Requirements
+| Field   | Meaning                            |
+| ------- | ---------------------------------- |
+| `f0`    | Detected pitch (after calibration) |
+| `note`  | Nearest musical note               |
+| `cents` | Sharp/flat difference in cents     |
+| `rms`   | Signal energy (volume)             |
+| `prob`  | YIN confidence                     |
 
-Android Studio Flamingo or newer
+---
 
-Min SDK: 26
+## 📱 **Android App Setup**
 
-Permissions required:
+### **Requirements**
 
-BLUETOOTH_SCAN
+* Android Studio **Flamingo** or newer
+* Minimum SDK: **26**
 
-BLUETOOTH_CONNECT
+### **Required Permissions**
 
-ACCESS_FINE_LOCATION
+* `BLUETOOTH_SCAN`
+* `BLUETOOTH_CONNECT`
+* `ACCESS_FINE_LOCATION`
 
-Build Instructions
+### **Build Instructions**
 
-Open folder in Android Studio
+1. Open project folder in Android Studio
+2. Select a physical Android device (BLE required)
+3. Build → **Make Project**
+4. Run → **Run App**
+5. Tap **Scan**
+6. Select **ESP32-YinPitch-44k**
 
-Build → Make Project
+---
 
-Run on a physical Android device
+## 📊 **Accuracy Logging**
 
-Click Scan → Pick ESP32-YinPitch-44k
+When tapping **Start Accuracy Log**:
 
-📊 Accuracy Logging (App Feature)
+* Clears previously collected errors
+* Records absolute deviation from target pitch (in cents)
+* On stopping, computes:
 
-Tapping “Start Accuracy Log”:
+| Metric            | Description                   |
+| ----------------- | ----------------------------- |
+| **Average Error** | Mean deviation in cents       |
+| **Max Error**     | Worst deviation observed      |
+| **Stability %**   | % of samples within ±10 cents |
 
-Clears historical pitch errors
+Useful for vocal warmups, practice sessions, and evaluating pitch control.
 
-Collects absolute cents deviations
+---
 
-When stopped:
+## 🔌 **Power Usage**
 
-Computes:
+Average ESP32 + MAX9814 consumption:
 
-Avg cents error
+* **150 mA @ 5V**
+* ~**0.75 W** continuous draw
 
-Max deviation
+### **Battery Runtime Estimates**
 
-Stability % = percent of samples within ±10 cents
+| Power Bank     | Estimated Runtime |
+| -------------- | ----------------- |
+| **10,000 mAh** | ~39 hours         |
+| **20,000 mAh** | ~79 hours         |
 
-Displays formatted results in the UI
+---
 
-🔌 Power Usage (ESP32)
+## 🔍 **Troubleshooting**
 
-Average measured draw:
+### **ESP32 Not Advertising**
 
-150 mA @ 5V
+* Ensure this is executed after disconnect:
 
-≈0.75W continuous usage
+  ```cpp
+  NimBLEDevice::startAdvertising();
+  ```
+* Check serial output:
 
-Expected runtime:
+  ```
+  [BLE] Advertising started
+  ```
 
-Power Bank	Runtime
-10,000 mAh	~39 hours
-20,000 mAh	~79 hours
-🔍 Troubleshooting
-ESP32 Not Advertising
+### **App Shows “Write failed”**
 
-Ensure NimBLEDevice::startAdvertising() is called after disconnect
+* Confirm RX characteristic uses:
 
-Check USB serial for:
+  ```cpp
+  NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR
+  ```
 
-[BLE] Advertising started
+### **Pitch Always Flat/Sharp**
 
-App Shows Write failed
+* Adjust global calibration:
 
-Ensure ESP32 has:
+  ```cpp
+  #define CALIBRATION_SEMITONES -3.7f
+  ```
+* Use per-range corrections (e.g., C2 low offset, B4 high offset)
 
-NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR
+### **Scanner Shows Too Many Devices**
 
-Pitch Always Flat or Sharp
+Add app-side filter:
 
-Adjust calibration:
-
-#define CALIBRATION_SEMITONES  -3.7f
-
-
-Use per-range correction if needed (B4 high offset, C2 low offset)
-
-App Sees Too Many Devices
-
-Check scanner filter:
-
+```kotlin
 if (!name.contains("ESP32") && !name.contains("YinPitch")) return
+```
 
-📄 License
+---
 
-MIT License — free to use, modify, and distribute.
+## 📄 **License**
 
-🙌 Credits
+**MIT License** — free to use, modify, and distribute.
 
-Developed by Campbell Brown
-Pitch engine based on the YIN algorithm, adapted for ESP32 real-time use.
-BLE transport uses NimBLE-Arduino for stability and low RAM usage.
+---
+
+## 🙌 **Credits**
+
+* Developed by **Campbell Brown**
+* Pitch engine based on the **YIN algorithm**, optimized for ESP32
+* BLE transport using **NimBLE-Arduino**
+
+---
+
+If you want a **PDF version**, a **GitHub badge setup**, or a **diagram section**, I can generate those too!
