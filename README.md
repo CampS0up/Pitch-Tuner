@@ -112,11 +112,6 @@ Send these as plain text strings:
 | `STOP`         | Pause pitch detection          |
 | `MUTE`         | Silence buzzer                 |
 | `PLAY NOTE=C4` | Play musical note              |
-| `PLAY F=440`   | Play specific frequency        |
-| `REF ON`       | Enable reference note tracking |
-| `REF OFF`      | Turn off reference tone        |
-| `SET A4=442`   | Adjust concert tuning          |
-| `PING`         | ESP32 returns a JSON echo      |
 
 ---
 
@@ -156,6 +151,7 @@ Typical packet sent from ESP32:
 * `BLUETOOTH_SCAN`
 * `BLUETOOTH_CONNECT`
 * `ACCESS_FINE_LOCATION`
+* `ACCESS_LOCATION`
 
 ### **Build Instructions**
 
@@ -241,12 +237,6 @@ Add app-side filter:
 ```kotlin
 if (!name.contains("ESP32") && !name.contains("YinPitch")) return
 ```
-
----
-
-## 📄 **License**
-
-**MIT License** — free to use, modify, and distribute.
 
 ---
 
