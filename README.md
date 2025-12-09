@@ -238,6 +238,12 @@ Add app-side filter:
 if (!name.contains("ESP32") && !name.contains("YinPitch")) return
 ```
 
+## **Amazon Links**
+
+ESP32: https://www.amazon.com/dp/B0CN4F354N
+MAX9814: https://www.amazon.com/dp/B0D3CXWBBT
+Speaker: https://www.amazon.com/dp/B0C49TKSQQ
+
 ---
 
 ## 🙌 **Credits**
