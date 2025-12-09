@@ -1,0 +1,354 @@
+---
+
+# **ESP32 Vocal Pitch Tuner – User Guide**
+
+### *Firmware + Android App*
+
+---
+
+# **1. Introduction**
+
+The **ESP32 Vocal Pitch Tuner** is a real-time pitch analysis system designed for singers, musicians, educators, and embedded developers.
+It uses:
+
+* **ESP32 microcontroller**
+* **MAX9814 microphone module**
+* **YIN pitch detection algorithm**
+* **BLE wireless streaming**
+* **Android companion app**
+
+The device detects your sung pitch, identifies the nearest musical note, calculates tuning error in cents, and optionally plays a reference tone to help you correct your pitch.
+
+This guide explains how to **set up**, **connect**, **operate**, and **troubleshoot** the complete system.
+
+---
+
+# **2. System Overview**
+
+### Components
+
+| Component                  | Purpose                                                           |
+| -------------------------- | ----------------------------------------------------------------- |
+| **ESP32 Module**           | Performs audio sampling, pitch computation, and BLE communication |
+| **MAX9814 Microphone Amp** | Captures clean vocal audio                                        |
+| **Android App**            | Displays pitch, note, cents, and confidence                       |
+| **Buzzer**                 | Plays reference tones and generated notes                         |
+
+### Key Features
+
+* Real-time pitch detection at **35 kHz sampling**
+* Stable note & cents readout
+* BLE UART communication
+* Accuracy Logging system
+* Reference tone playback
+* Low power consumption (0.75W)
+
+---
+
+# **3. Hardware Setup**
+
+## 3.1 Wiring Diagram
+
+### **MAX9814 → ESP32**
+
+| MAX9814 Pin | ESP32 Pin          |
+| ----------- | ------------------ |
+| VDD         | 3.3V               |
+| GND         | GND                |
+| OUT         | GPIO 34 (ADC1_CH6) |
+
+### **Buzzer → ESP32**
+
+| Buzzer Pin | ESP32 Pin |
+| ---------- | --------- |
+| +          | GPIO 13   |
+| –          | GND       |
+
+## 3.2 Physical Placement
+
+For best performance:
+
+* Position microphone **6–12 inches** from your mouth.
+* Avoid pointing directly into airflow (pops/wind).
+* Use a quiet environment to reduce detection noise.
+* Ensure the MAX9814 AGC jumper stays **fixed gain** or **AGC slow**.
+
+---
+
+# **4. Firmware Setup (ESP32)**
+
+## 4.1 Required Software
+
+* Arduino IDE 1.8+ or 2.x
+* ESP32 Arduino Core v2.0+
+* Library: **NimBLE-Arduino**
+
+## 4.2 Board Configuration
+
+Set in Arduino IDE:
+
+```
+Board: ESP32 Dev Module
+Flash Size: 4MB
+Upload Speed: 921600 (optional)
+Partition Scheme: Default
+```
+
+## 4.3 Uploading Firmware
+
+1. Connect ESP32 via USB
+2. Open firmware `.ino` file
+3. Verify → Upload
+4. Open Serial Monitor @ 115200 baud
+5. You should see:
+
+```
+ESP32 + MAX9814 + YIN @ 35 kHz + BLE + Buzzer ready.
+```
+
+---
+
+# **5. Android App Installation**
+
+## 5.1 Requirements
+
+* Physical Android device (BLE required)
+* Android 8.0+ (SDK ≥ 26)
+* Permissions must be granted on first run:
+
+  * **BLUETOOTH_SCAN**
+  * **BLUETOOTH_CONNECT**
+  * **ACCESS_FINE_LOCATION**
+
+## 5.2 Installation Steps
+
+1. Install the APK (or run through Android Studio)
+2. Launch the app
+3. Grant Bluetooth permissions
+
+---
+
+# **6. Connecting to the ESP32**
+
+## 6.1 Scanning for the Device
+
+1. Open the app
+2. Press **Scan**
+3. You should see:
+
+```
+ESP32-YinPitch-44k
+```
+
+4. Tap to connect
+5. Status should change to:
+
+```
+Connected — Ready
+```
+
+If pitch streaming is ON, updates begin immediately.
+
+---
+
+# **7. Using the Pitch Tuner**
+
+## 7.1 Live Pitch Display
+
+Once connected, the app displays:
+
+* **Note (e.g., G#3)**
+* **Frequency (Hz)**
+* **Cents deviation**
+* **Confidence/probability**
+
+Example:
+
+```
+Note: D4
+f0: 293.7 Hz
+Cents: -12.5
+Confidence: 0.82
+```
+
+## 7.2 Understanding Pitch Readings
+
+### If **cents** is negative:
+
+> You are **flat** — pitch too low
+
+### If **cents** is positive:
+
+> You are **sharp** — pitch too high
+
+Goal: stay within **±10 cents** for accurate singing.
+
+---
+
+# **8. Accuracy Logging Mode**
+
+This mode evaluates your pitch stability over time.
+
+## 8.1 Starting the Log
+
+1. Press **Start Accuracy Log**
+2. App begins recording every cents value received
+
+## 8.2 Stopping the Log
+
+Press **Stop Accuracy Log** to compute:
+
+| Metric            | Meaning                       |
+| ----------------- | ----------------------------- |
+| **Average Error** | Mean deviation from target    |
+| **Max Error**     | Worst pitch in session        |
+| **Stability %**   | % of samples within ±10 cents |
+
+Useful for:
+
+* Vocal warmups
+* Performance analysis
+* Vocal training progress tracking
+
+---
+
+# **9. Reference Tone Playback**
+
+## 9.1 Turning On Auto-Matching Tone
+
+If you enable:
+
+```
+REF ON
+```
+
+The ESP32:
+
+* Determines your pitch
+* Finds the nearest equal-tempered note
+* Plays that note through the buzzer
+
+### Useful for:
+
+* Pitch matching exercises
+* Ear training
+* Vocal tuning practice
+
+Turn it off with:
+
+```
+REF OFF
+```
+
+## 9.2 Manual Note Playback
+
+Examples:
+
+```
+PLAY NOTE=C4
+PLAY NOTE=F#3
+PLAY F=440
+```
+
+---
+
+# **10. BLE Commands (Advanced Users)**
+
+Send via app or serial:
+
+| Command        | Function                       |
+| -------------- | ------------------------------ |
+| `START`        | Begin pitch detection          |
+| `STOP`         | Pause detection                |
+| `REF ON`       | Enable matching reference tone |
+| `REF OFF`      | Disable tone                   |
+| `PLAY NOTE=C4` | Play note                      |
+| `PLAY F=440`   | Play frequency                 |
+| `MUTE`         | Stop buzzer                    |
+| `SET A4=442`   | Change tuning standard         |
+| `PING`         | ESP32 returns timing packet    |
+
+---
+
+# **11. Power Consumption & Battery Life**
+
+### Average ESP32 system usage:
+
+* **150 mA @ 5.0V**
+* ≈ **0.75W** continuous operation
+
+### Power Bank Runtime Estimates
+
+| Power Bank Size | Runtime    |
+| --------------- | ---------- |
+| **10,000 mAh**  | ~39 hours  |
+| **20,000 mAh**  | ~79 hours  |
+| **30,000 mAh**  | ~118 hours |
+
+---
+
+# **12. Troubleshooting**
+
+## App Can’t Find ESP32
+
+* Ensure ESP32 is powered
+* Serial should show:
+
+```
+[BLE] Advertising started
+```
+
+* Move closer (<3m)
+* Restart Bluetooth on phone
+
+## App Says “Write Failed”
+
+* ESP32 may have lost connection
+* Reconnect in app
+
+## Pitch Always Flat or Sharp
+
+* Adjust tuning calibration:
+
+```cpp
+#define CALIBRATION_SEMITONES -3.7f
+```
+
+* Ensure microphone isn’t saturated
+* Speak/sing directly at moderate volume
+
+## BLE Disconnects Frequently
+
+* Disable phone’s battery saving mode
+* Ensure ESP32 has stable 5V supply
+
+---
+
+# **13. Safety Notes**
+
+* Do not power MAX9814 from **5V** (3.3V only)
+* Avoid prolonged buzzer exposure at high volume
+* Keep microphone away from moisture
+
+---
+
+# **14. Technical Specifications**
+
+| Component       | Spec                                         |
+| --------------- | -------------------------------------------- |
+| Sampling Rate   | 35,000 Hz I2S                                |
+| Algorithm       | YIN (band-limited + parabolic interpolation) |
+| BLE Service     | Nordic UART (TX+RX)                          |
+| Report Interval | 60 ms                                        |
+| RMS Threshold   | 0.004                                        |
+| Frequency Range | 55–1100 Hz                                   |
+
+---
+
+# **15. Credits**
+
+Developed by **Campbell Brown**
+Pitch engine built using an optimized YIN implementation
+BLE communications powered by NimBLE-Arduino
+
+---
